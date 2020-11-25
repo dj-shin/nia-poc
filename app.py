@@ -8,6 +8,7 @@ from base64 import b64encode
 from PIL import Image
 import io
 import numpy as np
+from waitress import serve
 
 
 def create_app():
@@ -24,6 +25,13 @@ def get_redis():
     if r is None:
         r = g._redis = redis.Redis(host='localhost', port=6379, db=0)
     return r
+
+
+@app.route('/state')
+def get_state():
+    r = get_redis()
+    lock = r.get('lock')
+    return {'lock': bool(lock)}
 
 
 @app.route('/launch', methods=['POST'])
@@ -65,3 +73,7 @@ def dcm_to_jpg(dcm_path):
     img_bytes = io.BytesIO()
     im.save(img_bytes, format='JPEG')
     return img_bytes.getvalue()
+
+
+if __name__ == '__main__':
+    serve(app, host='0.0.0.0', port=5000)
