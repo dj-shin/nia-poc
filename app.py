@@ -9,6 +9,7 @@ from PIL import Image
 import io
 import numpy as np
 from waitress import serve
+import shutil
 
 
 def create_app():
@@ -34,6 +35,16 @@ def get_state():
     return {'lock': bool(lock)}
 
 
+def cleanup_storage():
+    if os.path.exists(app.config['UPLOAD_FOLDER']):
+        shutil.rmtree(app.config['UPLOAD_FOLDER'])
+
+
+def prepare_storage():
+    cleanup_storage()
+    os.mkdir(app.config['UPLOAD_FOLDER'])
+
+
 @app.route('/launch', methods=['POST'])
 def launch():
     r = get_redis()
@@ -42,19 +53,25 @@ def launch():
         return Response(response='Resource Locked', status=409)
     r.set('lock', 1)    # lock session
 
-    if 'dicom' not in request.files:
+    try:
+        if 'dicom' not in request.files:
+            return Response(response='No dicom file', status=400)
+
+        f = request.files['dicom']
+        fpath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(f.filename))
+
+        prepare_storage()
+        f.save(fpath)
+
+        # TODO: model prediction
+        image = b64encode(dcm_to_jpg(fpath)).decode()
+
+        cleanup_storage()
+        return {'image': image}
+    except Exception as exc:
+        print(exc)
+    finally:
         r.delete('lock')    # unlock
-        return Response(response='No dicom file', status=400)
-
-    f = request.files['dicom']
-    fpath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(f.filename))
-    f.save(fpath)
-
-    # TODO: model prediction
-    image = b64encode(dcm_to_jpg(fpath)).decode()
-
-    r.delete('lock')    # unlock
-    return {'image': image}
 
 
 def dcm_to_jpg(dcm_path):
